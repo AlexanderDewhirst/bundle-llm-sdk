@@ -369,6 +369,7 @@ class BundleLLMInstanceImpl {
   private siteId: string = "";
   private destroyed = false;
   private sdkLoadSent = false;
+  private chatContext?: string;
 
   constructor(config?: BundleLLMConfig) {
     this.apiUrl = config?.apiUrl ?? DEFAULT_API_URL;
@@ -553,7 +554,7 @@ class BundleLLMInstanceImpl {
       addMessage("user", text);
       const { textEl, row } = addMessage("assistant", "");
       let fullText = "";
-      const stream = this.chat({ messages: [...history], context: opts.context, model: modelSwitcher.value || undefined });
+      const stream = this.chat({ messages: [...history], context: this.chatContext ?? opts.context, model: modelSwitcher.value || undefined });
       sendBtn.disabled = true; sendBtn.textContent = "...";
       stream
         .on("delta", (delta: unknown) => { fullText += delta as string; textEl.textContent = fullText; messagesEl.scrollTop = messagesEl.scrollHeight; })
@@ -652,7 +653,10 @@ class BundleLLMInstanceImpl {
       return wrappedStream;
     };
 
-    streamChat(this.connection, request, stream, this.siteId, () => {
+    const effectiveRequest = this.chatContext && !request.context
+      ? { ...request, context: this.chatContext }
+      : request;
+    streamChat(this.connection, effectiveRequest, stream, this.siteId, () => {
       this.disconnect();
     });
     return wrappedStream as unknown as ChatStream & { cancel: () => void };
@@ -677,6 +681,16 @@ class BundleLLMInstanceImpl {
     return (info as { models?: Array<{ id: string; name: string }> })?.models ?? [];
   }
 
+  setContext(context: string | undefined) {
+    if (this.destroyed) return;
+    if (context === undefined) { this.chatContext = undefined; return; }
+    if (context.length > 10_000) {
+      console.warn("BundleLLM: context exceeds 10,000 characters, truncating");
+      context = context.slice(0, 10_000);
+    }
+    this.chatContext = context;
+  }
+
   disconnect() {
     const provider = this.connection?.provider;
     this.connection = null;
@@ -687,6 +701,7 @@ class BundleLLMInstanceImpl {
 
   destroy() {
     this.destroyed = true;
+    this.chatContext = undefined;
     this.emitter.removeAll();
   }
 

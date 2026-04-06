@@ -27,6 +27,14 @@ export interface BundleLLMInstance {
   getStatus(): SDKConnectionStatusResult;
   setModel(modelId: string): void;
   getModels(): Array<{ id: string; name: string }>;
+  /**
+   * Update the system prompt context dynamically. Pass `undefined` to clear.
+   *
+   * For `renderChat`: overrides the initial `options.context`. For direct
+   * `chat()` calls: used as fallback when `request.context` is not provided.
+   * Truncated to 10,000 characters if exceeded.
+   */
+  setContext(context: string | undefined): void;
   disconnect(): void;
   destroy(): void;
 }
