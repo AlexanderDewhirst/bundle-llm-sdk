@@ -147,7 +147,10 @@ interface StoredConnection {
 function loadConnection(): StoredConnection | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.provider !== "string" || typeof parsed.key !== "string") return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -370,6 +373,9 @@ class BundleLLMInstanceImpl {
   private destroyed = false;
   private sdkLoadSent = false;
   private chatContext?: string;
+  private documentClickHandler?: () => void;
+  private widgetEl?: HTMLElement;
+  private signInEl?: HTMLElement;
 
   constructor(config?: BundleLLMConfig) {
     this.apiUrl = config?.apiUrl ?? DEFAULT_API_URL;
@@ -401,11 +407,14 @@ class BundleLLMInstanceImpl {
   // ---- Public API ----
 
   renderSignIn(selector: string) {
+    if (this.destroyed) return;
     const container = document.querySelector(selector);
     if (!container) return;
+    if (this.signInEl) this.signInEl.remove();
     const wrapper = document.createElement("div");
     wrapper.innerHTML = this.buildProviderPickerHTML();
     container.appendChild(wrapper);
+    this.signInEl = wrapper;
     this.wireProviderPicker(wrapper);
     this.emitIfConnected();
 
@@ -417,8 +426,17 @@ class BundleLLMInstanceImpl {
   }
 
   renderChat(selector: string, options?: RenderChatOptions) {
+    if (this.destroyed) return;
     const container = document.querySelector(selector);
     if (!container) return;
+
+    // Clean up previous renderChat call to prevent listener and DOM leaks
+    if (this.widgetEl) {
+      this.widgetEl.remove();
+    }
+    if (this.documentClickHandler) {
+      document.removeEventListener("click", this.documentClickHandler);
+    }
 
     const opts = {
       placeholder: options?.placeholder ?? "Ask something...",
@@ -454,24 +472,30 @@ class BundleLLMInstanceImpl {
         </div>
       </div>
       <div data-bundlellm="auth" style="flex:1;overflow-y:auto;padding:16px;">
-        <p style="font-size:14px;color:${textMuted};margin-bottom:16px;text-align:center;">${opts.welcomeMessage}</p>
+        <p data-bundlellm="welcome" style="font-size:14px;color:${textMuted};margin-bottom:16px;text-align:center;"></p>
         <div data-bundlellm="provider-picker"></div>
       </div>
       <div data-bundlellm="chat" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
         <div data-bundlellm="messages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px;"></div>
         <div style="padding:12px;border-top:1px solid ${border};display:flex;gap:8px;">
-          <input data-bundlellm="input" type="text" placeholder="${opts.placeholder}" style="flex:1;padding:8px 12px;border:1px solid ${border};border-radius:8px;font-size:14px;outline:none;background:${inputBg};color:${text};">
+          <input data-bundlellm="input" type="text" style="flex:1;padding:8px 12px;border:1px solid ${border};border-radius:8px;font-size:14px;outline:none;background:${inputBg};color:${text};">
           <button data-bundlellm="send" style="padding:8px 16px;background:${userBubble};color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:500;">Send</button>
         </div>
       </div>
     `;
 
     container.appendChild(widget);
+    this.widgetEl = widget;
+
+    // Set developer-supplied strings via safe DOM methods (not innerHTML)
+    const welcomeEl = widget.querySelector('[data-bundlellm="welcome"]') as HTMLElement;
+    if (welcomeEl) welcomeEl.textContent = opts.welcomeMessage;
+    const inputEl = widget.querySelector('[data-bundlellm="input"]') as HTMLInputElement;
+    if (inputEl) inputEl.setAttribute("placeholder", opts.placeholder);
 
     const authArea = widget.querySelector('[data-bundlellm="auth"]') as HTMLElement;
     const chatArea = widget.querySelector('[data-bundlellm="chat"]') as HTMLElement;
     const messagesEl = widget.querySelector('[data-bundlellm="messages"]') as HTMLElement;
-    const inputEl = widget.querySelector('[data-bundlellm="input"]') as HTMLInputElement;
     const sendBtn = widget.querySelector('[data-bundlellm="send"]') as HTMLButtonElement;
     const statusEl = widget.querySelector('[data-bundlellm="status"]') as HTMLElement;
     const menuBtn = widget.querySelector('[data-bundlellm="menu-btn"]') as HTMLButtonElement;
@@ -495,7 +519,8 @@ class BundleLLMInstanceImpl {
     // Menu
     menuBtn.addEventListener("click", (e) => { e.stopPropagation(); menu.style.display = menu.style.display === "none" ? "block" : "none"; });
     menu.addEventListener("click", (e) => e.stopPropagation());
-    document.addEventListener("click", () => (menu.style.display = "none"));
+    this.documentClickHandler = () => (menu.style.display = "none");
+    document.addEventListener("click", this.documentClickHandler);
     const clearChatBtn = widget.querySelector('[data-bundlellm="clear-chat"]') as HTMLButtonElement;
     clearChatBtn.addEventListener("click", () => {
       menu.style.display = "none";
@@ -600,11 +625,15 @@ class BundleLLMInstanceImpl {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  on(event: string, cb: (...args: any[]) => void) { this.emitter.on(event, cb); }
+  on(event: string, cb: (...args: any[]) => void) { if (!this.destroyed) this.emitter.on(event, cb); }
   off(event: string, cb: (...args: unknown[]) => void) { this.emitter.off(event, cb); }
 
   chat(request: SDKChatRequestInput): ChatStream & { cancel: () => void } {
     const stream = new ChatStreamImpl();
+    if (this.destroyed) {
+      setTimeout(() => stream._emit("error", { message: "Instance has been destroyed" }), 0);
+      return stream as unknown as ChatStream & { cancel: () => void };
+    }
     if (!this.connection) {
       setTimeout(() => stream._emit("error", { message: "No provider connected" }), 0);
       return stream as unknown as ChatStream & { cancel: () => void };
@@ -670,7 +699,7 @@ class BundleLLMInstanceImpl {
   }
 
   setModel(modelId: string) {
-    if (!this.connection) return;
+    if (this.destroyed || !this.connection) return;
     this.connection.model = modelId;
     saveConnection(this.connection);
   }
@@ -692,6 +721,7 @@ class BundleLLMInstanceImpl {
   }
 
   disconnect() {
+    if (this.destroyed) return;
     const provider = this.connection?.provider;
     this.connection = null;
     clearConnection();
@@ -701,7 +731,20 @@ class BundleLLMInstanceImpl {
 
   destroy() {
     this.destroyed = true;
+    this.connection = null;
     this.chatContext = undefined;
+    if (this.documentClickHandler) {
+      document.removeEventListener("click", this.documentClickHandler);
+      this.documentClickHandler = undefined;
+    }
+    if (this.widgetEl) {
+      this.widgetEl.remove();
+      this.widgetEl = undefined;
+    }
+    if (this.signInEl) {
+      this.signInEl.remove();
+      this.signInEl = undefined;
+    }
     this.emitter.removeAll();
   }
 
