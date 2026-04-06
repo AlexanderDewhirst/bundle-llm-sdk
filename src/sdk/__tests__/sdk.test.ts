@@ -156,7 +156,7 @@ describe("BundleLLM", () => {
 
       // Find the provider chat call (not analytics)
       const providerCalls = mockFetch.mock.calls.filter(
-        (c: [string, ...unknown[]]) => c[0].includes("openrouter.ai"),
+        (c) => (c[0] as string).includes("openrouter.ai"),
       );
       expect(providerCalls.length).toBeGreaterThanOrEqual(1);
 
@@ -842,21 +842,20 @@ describe("BundleLLM", () => {
       ai.destroy();
       ai.setContext("After destroy");
 
-      // chat() on the destroyed instance — "After destroy" context should
-      // NOT have been stored since the guard blocked it
+      // chat() on the destroyed instance emits error (connection cleared)
+      const errors: string[] = [];
       await new Promise<void>((resolve) => {
         ai.chat({
           messages: [{ role: "user", content: "hi" }],
-        }).on("done", () => resolve()).on("error", () => resolve());
+        }).on("done", () => resolve()).on("error", (err: { message: string }) => { errors.push(err.message); resolve(); });
       });
 
-      // The request should have no system message — destroy() cleared
-      // chatContext and the post-destroy setContext was blocked
+      expect(errors).toContain("Instance has been destroyed");
+      // No provider API calls should have been made
       const providerCalls = mockFetch.mock.calls.filter(
-        (c: [string, ...unknown[]]) => !c[0].includes("/api/events"),
+        (c) => !(c[0] as string).includes("/api/events"),
       );
-      const body = JSON.parse(providerCalls[0][1].body);
-      expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+      expect(providerCalls.length).toBe(0);
     });
 
     it("truncates context exceeding 10,000 characters", async () => {
