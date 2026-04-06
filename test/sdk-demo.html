@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BundleLLM SDK Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; color: #1a202c; padding: 24px; }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .subtitle { color: #718096; font-size: 14px; margin-bottom: 24px; }
+    .columns { display: flex; gap: 24px; }
+    .col { flex: 1; min-width: 0; }
+    .col h2 { font-size: 16px; margin-bottom: 4px; }
+    .col .desc { color: #718096; font-size: 12px; margin-bottom: 12px; }
+    .log { background: #1a202c; color: #a0aec0; font-family: monospace; font-size: 11px; padding: 10px 12px; border-radius: 8px; max-height: 160px; overflow-y: auto; margin-top: 12px; min-height: 60px; }
+    .log .ok { color: #68d391; }
+    .log .err { color: #fc8181; }
+
+    /* Custom UI */
+    #status { padding: 8px 12px; border-radius: 6px; background: #f7fafc; border: 1px solid #e2e8f0; font-size: 13px; margin: 8px 0; }
+    #chat-area { display: none; margin-top: 12px; }
+    #chat-area.visible { display: block; }
+    #messages { min-height: 200px; max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+    .message { margin-bottom: 8px; }
+    .message.user { text-align: right; }
+    .message.user span { background: #3182ce; color: #fff; display: inline-block; padding: 6px 10px; border-radius: 10px; max-width: 80%; font-size: 13px; }
+    .message.assistant span { background: #f7fafc; display: inline-block; padding: 6px 10px; border-radius: 10px; max-width: 80%; border: 1px solid #e2e8f0; font-size: 13px; }
+    .input-row { display: flex; gap: 6px; }
+    .input-row input { flex: 1; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; outline: none; }
+    .input-row input:focus { border-color: #3182ce; }
+    .input-row button { padding: 8px 16px; background: #3182ce; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>BundleLLM SDK Demo</h1>
+  <p class="subtitle">Two integration modes side by side.</p>
+
+  <div class="columns">
+    <!-- Option A -->
+    <div class="col">
+      <h2>Drop-in Widget</h2>
+      <p class="desc"><code>BundleLLM.init().renderChat('#chat')</code></p>
+      <div id="widget-container" style="height:450px;"></div>
+      <div class="log" id="log-widget"></div>
+    </div>
+
+    <!-- Option B -->
+    <div class="col">
+      <h2>Custom UI</h2>
+      <p class="desc">Site owners control every element. Each piece below is configurable.</p>
+
+      <!-- Piece 1: Provider Picker -->
+      <div style="border:1px dashed #cbd5e0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative;">
+        <span style="position:absolute;top:-10px;left:12px;background:#fff;padding:0 6px;font-size:11px;font-weight:600;color:#3182ce;">renderSignIn('#container')</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div id="sign-in-container"></div>
+          <button id="signout-btn" style="display:none;padding:8px 16px;border:1px solid #fed7d7;border-radius:6px;background:#fff;color:#e53e3e;font-size:13px;cursor:pointer;">Sign out</button>
+        </div>
+      </div>
+
+      <!-- Piece 2: Status -->
+      <div style="border:1px dashed #cbd5e0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative;">
+        <span style="position:absolute;top:-10px;left:12px;background:#fff;padding:0 6px;font-size:11px;font-weight:600;color:#3182ce;">on('connected') / on('disconnected')</span>
+        <div id="status">Waiting for sign in...</div>
+      </div>
+
+      <div id="chat-area">
+        <!-- Piece 2.5: Model Selector -->
+        <div style="border:1px dashed #cbd5e0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative;">
+          <span style="position:absolute;top:-10px;left:12px;background:#fff;padding:0 6px;font-size:11px;font-weight:600;color:#3182ce;">setModel() / getModels()</span>
+          <select id="model-select" style="width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;outline:none;background:#fff;"></select>
+        </div>
+
+        <!-- Piece 3: Context -->
+        <div style="border:1px dashed #cbd5e0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative;">
+          <span style="position:absolute;top:-10px;left:12px;background:#fff;padding:0 6px;font-size:11px;font-weight:600;color:#3182ce;">chat({ context: '...' })</span>
+          <input id="context-input" type="text" placeholder="System prompt — product data, page content, instructions..." style="width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;outline:none;">
+        </div>
+
+        <!-- Piece 4: Messages -->
+        <div style="border:1px dashed #cbd5e0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative;">
+          <span style="position:absolute;top:-10px;left:12px;background:#fff;padding:0 6px;font-size:11px;font-weight:600;color:#3182ce;">stream.on('delta') / on('done')</span>
+          <div id="messages"></div>
+        </div>
+
+        <!-- Piece 5: Input -->
+        <div style="border:1px dashed #cbd5e0;border-radius:8px;padding:12px;margin-bottom:12px;position:relative;">
+          <span style="position:absolute;top:-10px;left:12px;background:#fff;padding:0 6px;font-size:11px;font-weight:600;color:#3182ce;">chat({ messages: [...] })</span>
+          <div class="input-row">
+            <input id="chat-input" type="text" placeholder="Ask something...">
+            <button id="send-btn">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="log" id="log-custom"></div>
+    </div>
+  </div>
+
+  <script src="/dist-sdk/sdk.js"></script>
+  <script>
+    function wlog(id, msg, type) {
+      const el = document.getElementById(id);
+      const line = document.createElement('div');
+      if (type) line.className = type;
+      line.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    // ---- Widget ----
+    const widget = BundleLLM.init({ apiUrl: 'https://api.bundlellm.com', siteId: 'demo-widget' });
+    widget.renderChat('#widget-container', {
+      welcomeMessage: 'Connect your AI provider to start chatting.',
+      placeholder: 'Ask me anything...',
+      context: 'This is a demo page for the BundleLLM SDK.',
+    });
+    widget.on('connected', ({ provider, model }) => wlog('log-widget', `Connected: ${provider}${model ? ' / ' + model : ''}`, 'ok'));
+    widget.on('disconnected', () => wlog('log-widget', 'Disconnected'));
+    widget.on('error', (err) => wlog('log-widget', `Error: ${err.message}`, 'err'));
+    wlog('log-widget', 'Widget rendered');
+
+    // ---- Custom UI ----
+    const custom = BundleLLM.init({ apiUrl: 'https://api.bundlellm.com', siteId: 'demo-custom' });
+    const statusEl = document.getElementById('status');
+    const chatArea = document.getElementById('chat-area');
+    const messagesEl = document.getElementById('messages');
+    const chatInput = document.getElementById('chat-input');
+    const contextInput = document.getElementById('context-input');
+    const sendBtn = document.getElementById('send-btn');
+    const signoutBtn = document.getElementById('signout-btn');
+    const signInContainer = document.getElementById('sign-in-container');
+    const modelSelectEl = document.getElementById('model-select');
+
+    custom.renderSignIn('#sign-in-container');
+    wlog('log-custom', 'Sign-in rendered');
+
+    custom.on('connected', ({ provider, model }) => {
+      statusEl.textContent = `Connected: ${provider}${model ? ' (' + model + ')' : ''}`;
+      statusEl.style.background = '#f0fff4'; statusEl.style.borderColor = '#c6f6d5';
+      signInContainer.style.display = 'none';
+      chatArea.classList.add('visible');
+      signoutBtn.style.display = 'inline-block';
+
+      // Populate model selector
+      const models = custom.getModels();
+      modelSelectEl.textContent = '';
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name;
+        if (m.id === model) opt.selected = true;
+        modelSelectEl.appendChild(opt);
+      });
+
+      wlog('log-custom', `Connected: ${provider}${model ? ' / ' + model : ''}`, 'ok');
+    });
+
+    modelSelectEl.addEventListener('change', () => {
+      custom.setModel(modelSelectEl.value);
+      wlog('log-custom', `Model changed: ${modelSelectEl.value}`);
+    });
+
+    custom.on('disconnected', () => {
+      statusEl.textContent = 'Disconnected';
+      statusEl.style.background = '#fff5f5'; statusEl.style.borderColor = '#fed7d7';
+      signInContainer.style.display = 'block';
+      chatArea.classList.remove('visible');
+      signoutBtn.style.display = 'none';
+      wlog('log-custom', 'Disconnected');
+    });
+
+    custom.on('error', (err) => wlog('log-custom', `Error: ${err.message}`, 'err'));
+    signoutBtn.addEventListener('click', () => { custom.disconnect(); });
+
+    let history = [];
+    function addMsg(role, text) {
+      const div = document.createElement('div');
+      div.className = 'message ' + role;
+      div.innerHTML = '<span></span>';
+      div.querySelector('span').textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div.querySelector('span');
+    }
+
+    function send() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatInput.value = '';
+      history.push({ role: 'user', content: text });
+      addMsg('user', text);
+      const span = addMsg('assistant', '');
+      const ctx = contextInput.value.trim() || undefined;
+      let full = '';
+      wlog('log-custom', `Sending: "${text}"${ctx ? ' [context: ' + ctx.slice(0, 50) + ']' : ''}`);
+      sendBtn.disabled = true;
+      custom.chat({ messages: [...history], context: ctx, model: modelSelectEl.value || undefined })
+        .on('start', ({ messageId }) => wlog('log-custom', `Stream: ${messageId}`))
+        .on('delta', (t) => { full += t; span.textContent = full; messagesEl.scrollTop = messagesEl.scrollHeight; })
+        .on('done', ({ usage }) => {
+          history.push({ role: 'assistant', content: full });
+          const tok = usage ? `${usage.inputTokens} in / ${usage.outputTokens} out` : 'n/a';
+          wlog('log-custom', `Done. Tokens: ${tok}`, 'ok');
+          sendBtn.disabled = false;
+        })
+        .on('error', (err) => {
+          span.textContent = 'Error: ' + err.message; span.style.color = '#e53e3e';
+          wlog('log-custom', `Error: ${err.message}`, 'err');
+          sendBtn.disabled = false;
+        });
+    }
+
+    sendBtn.addEventListener('click', send);
+    chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+  </script>
+</body>
+</html>

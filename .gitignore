@@ -1,0 +1,7 @@
+node_modules
+dist-sdk
+.env
+.env.*
+coverage
+*.log
+.DS_Store
