@@ -23,6 +23,20 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function mockStreamResponse(data?: string) {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    body: new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(
+          data ?? 'data: {"id":"1","choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+        ));
+        c.close();
+      },
+    }),
+  });
+}
+
 describe("BundleLLM", () => {
   it("exposes init function", () => {
     expect(typeof BundleLLM.init).toBe("function");
@@ -100,6 +114,56 @@ describe("BundleLLM", () => {
       expect(container.querySelector('[data-bundlellm="auth"]')).not.toBeNull();
       expect(container.querySelector('[data-bundlellm="chat"]')).not.toBeNull();
       expect(container.querySelector('[data-bundlellm="provider-picker"]')).not.toBeNull();
+
+      ai.destroy();
+      document.body.removeChild(container);
+    });
+
+    it("uses setContext() in widget sendMessage flow", async () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "openrouter",
+        key: "sk-or-test",
+        model: "openai/gpt-4o",
+      }));
+
+      const mockFetch = mockStreamResponse(
+        'data: {"id":"1","choices":[{"delta":{"content":"reply"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}\n\ndata: [DONE]\n\n',
+      );
+      vi.stubGlobal("fetch", mockFetch);
+
+      const container = document.createElement("div");
+      container.id = "chat-integration";
+      container.style.height = "500px";
+      document.body.appendChild(container);
+
+      const ai = BundleLLM.init();
+      ai.renderChat("#chat-integration", { context: "Initial card context" });
+
+      // Wait for deferred connected event to fire and show chat UI
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Update context via setContext after renderChat (simulates card navigation)
+      ai.setContext("Dynamic card context");
+
+      // Simulate typing and sending a message through the widget
+      const inputEl = container.querySelector('[data-bundlellm="input"]') as HTMLInputElement;
+      const sendBtn = container.querySelector('[data-bundlellm="send"]') as HTMLButtonElement;
+      inputEl.value = "What is this about?";
+      sendBtn.click();
+
+      // Wait for stream to complete
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Find the provider chat call (not analytics)
+      const providerCalls = mockFetch.mock.calls.filter(
+        (c: [string, ...unknown[]]) => c[0].includes("openrouter.ai"),
+      );
+      expect(providerCalls.length).toBeGreaterThanOrEqual(1);
+
+      const body = JSON.parse(providerCalls[0][1].body);
+      // setContext should have been applied as system message via chat()
+      expect(body.messages[0]).toEqual({ role: "system", content: "Dynamic card context" });
+      expect(body.messages[1]).toEqual({ role: "user", content: "What is this about?" });
 
       ai.destroy();
       document.body.removeChild(container);
@@ -683,6 +747,145 @@ describe("BundleLLM", () => {
 
       ai.destroy();
       document.body.removeChild(container);
+    });
+  });
+
+  describe("setContext", () => {
+    it("overrides opts.context in subsequent chat calls", async () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "openrouter",
+        key: "sk-or-test",
+      }));
+
+      const mockFetch = mockStreamResponse();
+      vi.stubGlobal("fetch", mockFetch);
+
+      const ai = BundleLLM.init();
+
+      // setContext provides fallback when no explicit context given
+      ai.setContext("Fallback context");
+
+      await new Promise<void>((resolve) => {
+        ai.chat({
+          messages: [{ role: "user", content: "hi" }],
+        }).on("done", () => resolve()).on("error", () => resolve());
+      });
+
+      const body1 = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body1.messages[0]).toEqual({ role: "system", content: "Fallback context" });
+
+      ai.destroy();
+    });
+
+    it("explicit context in chat() takes precedence over setContext()", async () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "openrouter",
+        key: "sk-or-test",
+      }));
+
+      const mockFetch = mockStreamResponse();
+      vi.stubGlobal("fetch", mockFetch);
+
+      const ai = BundleLLM.init();
+      ai.setContext("Global context");
+
+      await new Promise<void>((resolve) => {
+        ai.chat({
+          messages: [{ role: "user", content: "hi" }],
+          context: "Explicit context",
+        }).on("done", () => resolve()).on("error", () => resolve());
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages[0]).toEqual({ role: "system", content: "Explicit context" });
+
+      ai.destroy();
+    });
+
+    it("clears context when called with undefined", async () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "openrouter",
+        key: "sk-or-test",
+      }));
+
+      const mockFetch = mockStreamResponse();
+      vi.stubGlobal("fetch", mockFetch);
+
+      const ai = BundleLLM.init();
+      ai.setContext("Temporary context");
+      ai.setContext(undefined);
+
+      await new Promise<void>((resolve) => {
+        ai.chat({
+          messages: [{ role: "user", content: "hi" }],
+        }).on("done", () => resolve()).on("error", () => resolve());
+      });
+
+      // No system message should be present since context was cleared
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+
+      ai.destroy();
+    });
+
+    it("is a no-op after destroy()", async () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "openrouter",
+        key: "sk-or-test",
+      }));
+
+      const mockFetch = mockStreamResponse();
+      vi.stubGlobal("fetch", mockFetch);
+
+      const ai = BundleLLM.init();
+      ai.setContext("Before destroy");
+      ai.destroy();
+      ai.setContext("After destroy");
+
+      // chat() on the destroyed instance — "After destroy" context should
+      // NOT have been stored since the guard blocked it
+      await new Promise<void>((resolve) => {
+        ai.chat({
+          messages: [{ role: "user", content: "hi" }],
+        }).on("done", () => resolve()).on("error", () => resolve());
+      });
+
+      // The request should have no system message — destroy() cleared
+      // chatContext and the post-destroy setContext was blocked
+      const providerCalls = mockFetch.mock.calls.filter(
+        (c: [string, ...unknown[]]) => !c[0].includes("/api/events"),
+      );
+      const body = JSON.parse(providerCalls[0][1].body);
+      expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+    });
+
+    it("truncates context exceeding 10,000 characters", async () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "openrouter",
+        key: "sk-or-test",
+      }));
+
+      const mockFetch = mockStreamResponse();
+      vi.stubGlobal("fetch", mockFetch);
+
+      const ai = BundleLLM.init();
+      const longContext = "x".repeat(15_000);
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      ai.setContext(longContext);
+
+      await new Promise<void>((resolve) => {
+        ai.chat({
+          messages: [{ role: "user", content: "hi" }],
+        }).on("done", () => resolve()).on("error", () => resolve());
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.messages[0].content.length).toBe(10_000);
+      expect(warnSpy).toHaveBeenCalledWith("BundleLLM: context exceeds 10,000 characters, truncating");
+
+      warnSpy.mockRestore();
+      ai.destroy();
     });
   });
 

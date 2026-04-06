@@ -44,6 +44,12 @@ The easiest way to add AI to your website. Users connect their own LLM provider 
     })
     .on('error', (err) => { /* handle */ });
 
+  // Update context dynamically (e.g., when page content changes)
+  ai.setContext('Updated page content...');
+
+  // Clear context override to revert to the original
+  ai.setContext(undefined);
+
   // Switch model, disconnect
   ai.setModel('anthropic/claude-haiku-4-5-20251001');
   ai.disconnect();
@@ -76,6 +82,7 @@ No proxy for chat. No user accounts. No server-side credential storage.
 - **Model selection** — dropdown in widget header + `setModel()` / `getModels()` for custom UI
 - **Token usage** — displayed per message so users see their cost
 - **Context injection** — site owners pass system prompts with every message
+- **Dynamic context** — update context after init with `setContext()` without losing chat history
 - **API key validation** — keys verified against provider before connecting
 - **Auto-disconnect on auth errors** — expired/revoked keys handled gracefully
 - **429 retry** — exponential backoff on rate limits (3 retries)
@@ -92,6 +99,7 @@ No proxy for chat. No user accounts. No server-side credential storage.
 | `.renderChat(selector, options?)` | Drop-in widget with auth, chat, streaming, token usage, model selector. |
 | `.renderSignIn(selector)` | Provider picker — OAuth + API key + model selector. |
 | `.chat(request)` | Stream a chat response. Returns `ChatStream`. |
+| `.setContext(context?)` | Update the system prompt context dynamically. Pass `undefined` to clear. |
 | `.getStatus()` | `{ connected, provider, model }` |
 | `.setModel(modelId)` | Change model while connected. |
 | `.getModels()` | Available models for connected provider. |
@@ -124,7 +132,7 @@ Per the [Terms of Service](https://bundlellm.com/terms), custom UI integrations 
 npm install
 npm run build        # Build SDK → dist-sdk/sdk.js
 npm run compile      # TypeScript type check
-npm test             # 30 tests
+npm test             # 36 tests
 ```
 
 ### Test the SDK
