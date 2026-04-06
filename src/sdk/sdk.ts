@@ -151,7 +151,7 @@ function loadConnection(sessionTTL?: number): StoredConnection | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed.provider !== "string" || typeof parsed.key !== "string") return null;
-    if (sessionTTL && typeof parsed.storedAt === "number") {
+    if (sessionTTL !== undefined && typeof parsed.storedAt === "number") {
       if (Date.now() - parsed.storedAt > sessionTTL * 1000) {
         clearConnection();
         return null;
