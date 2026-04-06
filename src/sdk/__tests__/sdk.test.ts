@@ -232,6 +232,54 @@ describe("BundleLLM", () => {
       expect(localStorage.getItem("bundlellm_connection")).toBeNull();
       ai.destroy();
     });
+
+    it("loads connection when sessionTTL is not exceeded", () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "anthropic",
+        key: "sk-ant-test",
+        storedAt: Date.now() - 1000, // 1 second ago
+      }));
+
+      const ai = BundleLLM.init({ sessionTTL: 3600 });
+      expect(ai.getStatus().connected).toBe(true);
+      ai.destroy();
+    });
+
+    it("clears expired connection when sessionTTL is exceeded", () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "anthropic",
+        key: "sk-ant-test",
+        storedAt: Date.now() - 7200_000, // 2 hours ago
+      }));
+
+      const ai = BundleLLM.init({ sessionTTL: 3600 });
+      expect(ai.getStatus().connected).toBe(false);
+      expect(localStorage.getItem("bundlellm_connection")).toBeNull();
+      ai.destroy();
+    });
+
+    it("ignores storedAt when sessionTTL is not set", () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "anthropic",
+        key: "sk-ant-test",
+        storedAt: Date.now() - 999_999_000, // very old
+      }));
+
+      const ai = BundleLLM.init();
+      expect(ai.getStatus().connected).toBe(true);
+      ai.destroy();
+    });
+
+    it("loads legacy connections without storedAt even with sessionTTL", () => {
+      localStorage.setItem("bundlellm_connection", JSON.stringify({
+        provider: "anthropic",
+        key: "sk-ant-test",
+      }));
+
+      const ai = BundleLLM.init({ sessionTTL: 3600 });
+      expect(ai.getStatus().connected).toBe(true);
+      ai.destroy();
+    });
   });
 
   describe("chat streaming", () => {

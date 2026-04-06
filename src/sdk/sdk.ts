@@ -142,14 +142,21 @@ interface StoredConnection {
   provider: string;
   key: string;
   model?: string;
+  storedAt?: number;
 }
 
-function loadConnection(): StoredConnection | null {
+function loadConnection(sessionTTL?: number): StoredConnection | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed.provider !== "string" || typeof parsed.key !== "string") return null;
+    if (sessionTTL !== undefined && typeof parsed.storedAt === "number") {
+      if (parsed.storedAt > Date.now() || parsed.storedAt < 0 || Date.now() - parsed.storedAt > sessionTTL * 1000) {
+        clearConnection();
+        return null;
+      }
+    }
     return parsed;
   } catch {
     return null;
@@ -158,7 +165,7 @@ function loadConnection(): StoredConnection | null {
 
 function saveConnection(conn: StoredConnection): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(conn));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...conn, storedAt: Date.now() }));
     return true;
   } catch {
     return false;
@@ -376,10 +383,14 @@ class BundleLLMInstanceImpl {
   private documentClickHandler?: () => void;
   private widgetEl?: HTMLElement;
   private signInEl?: HTMLElement;
+  private sessionTTL?: number;
 
   constructor(config?: BundleLLMConfig) {
     this.apiUrl = config?.apiUrl ?? DEFAULT_API_URL;
-    this.connection = loadConnection();
+    this.sessionTTL = config?.sessionTTL !== undefined && config.sessionTTL >= 0
+      ? config.sessionTTL
+      : undefined;
+    this.connection = loadConnection(this.sessionTTL);
 
     // Derive siteId (async but we don't await — events fire when ready)
     if (config?.siteId) {

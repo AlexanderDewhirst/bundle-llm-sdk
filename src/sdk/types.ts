@@ -7,6 +7,8 @@ export interface BundleLLMConfig {
   apiUrl?: string;
   /** Site identifier for analytics */
   siteId?: string;
+  /** Session TTL in seconds. When set, stored credentials expire after this duration. No default (credentials persist indefinitely). */
+  sessionTTL?: number;
 }
 
 export interface RenderChatOptions {
