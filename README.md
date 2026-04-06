@@ -109,6 +109,7 @@ No proxy for chat. No user accounts. No server-side credential storage.
 
 ## Security
 
+- **HTTPS recommended** — warns in console on non-HTTPS origins (API keys in localStorage may be exposed)
 - **API key validation** — keys tested against provider API before storing
 - **postMessage origin validation** — OAuth responses only accepted from API server origin
 - **No innerHTML** — all dynamic content uses DOM methods

@@ -23,9 +23,17 @@ const STORAGE_KEY = "bundlellm_connection";
 
 // ---- Analytics ----
 
+function djb2Hash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 async function deriveSiteId(): Promise<string> {
+  const origin = window.location.origin;
   try {
-    const origin = window.location.origin;
     const encoder = new TextEncoder();
     const hash = await crypto.subtle.digest("SHA-256", encoder.encode(origin));
     const hex = Array.from(new Uint8Array(hash))
@@ -33,7 +41,7 @@ async function deriveSiteId(): Promise<string> {
       .join("");
     return "site_" + hex.slice(0, 16);
   } catch {
-    return "site_unknown";
+    return "site_" + djb2Hash(origin);
   }
 }
 
@@ -391,6 +399,19 @@ class BundleLLMInstanceImpl {
       ? config.sessionTTL
       : undefined;
     this.connection = loadConnection(this.sessionTTL);
+
+    // Warn if running on a non-HTTPS, non-local origin
+    if (
+      typeof window !== "undefined" &&
+      window.location.protocol !== "https:" &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1" &&
+      window.location.hostname !== "[::1]"
+    ) {
+      console.warn(
+        "BundleLLM: running on a non-HTTPS origin. API keys in localStorage may be exposed.",
+      );
+    }
 
     // Derive siteId (async but we don't await — events fire when ready)
     if (config?.siteId) {
