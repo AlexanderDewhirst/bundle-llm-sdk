@@ -387,7 +387,9 @@ class BundleLLMInstanceImpl {
 
   constructor(config?: BundleLLMConfig) {
     this.apiUrl = config?.apiUrl ?? DEFAULT_API_URL;
-    this.sessionTTL = config?.sessionTTL;
+    this.sessionTTL = config?.sessionTTL !== undefined && config.sessionTTL >= 0
+      ? config.sessionTTL
+      : undefined;
     this.connection = loadConnection(this.sessionTTL);
 
     // Derive siteId (async but we don't await — events fire when ready)
