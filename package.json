@@ -19,6 +19,7 @@
     "anthropic",
     "claude",
     "byollm",
+    "markdown",
     "sdk"
   ],
   "homepage": "https://bundlellm.com",

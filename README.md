@@ -88,6 +88,7 @@ No proxy for chat. No user accounts. No server-side credential storage.
 - **429 retry** — exponential backoff on rate limits (3 retries)
 - **Conversation limit** — history capped at 20 messages to avoid context overflow
 - **Clear chat** — users can reset conversation from the widget menu
+- **Markdown rendering** — assistant responses render code blocks, inline code, bold, italic, headers, lists, and links
 - **Dark mode** — widget supports `theme: 'dark'`
 - **Analytics beacons** — lightweight events for usage tracking
 
@@ -96,7 +97,7 @@ No proxy for chat. No user accounts. No server-side credential storage.
 | Method | Description |
 |--------|-------------|
 | `BundleLLM.init(config?)` | Create instance. Optional `{ apiUrl, siteId }`. |
-| `.renderChat(selector, options?)` | Drop-in widget with auth, chat, streaming, token usage, model selector. |
+| `.renderChat(selector, options?)` | Drop-in widget with auth, chat, streaming, token usage, model selector. Options include `markdown: false` to disable formatting. |
 | `.renderSignIn(selector)` | Provider picker — OAuth + API key + model selector. |
 | `.chat(request)` | Stream a chat response. Returns `ChatStream`. |
 | `.setContext(context?)` | Update the system prompt context dynamically. Pass `undefined` to clear. |
@@ -106,13 +107,14 @@ No proxy for chat. No user accounts. No server-side credential storage.
 | `.disconnect()` | Clear provider connection. |
 | `.on(event, cb)` | Listen for `connected`, `disconnected`, `error`. |
 | `.destroy()` | Clean up listeners and state. |
+| `BundleLLM.renderMarkdown(text)` | Convert markdown to styled HTML. For custom UI integrations. |
 
 ## Security
 
 - **HTTPS recommended** — warns in console on non-HTTPS origins (API keys in localStorage may be exposed)
 - **API key validation** — keys tested against provider API before storing
 - **postMessage origin validation** — OAuth responses only accepted from API server origin
-- **No innerHTML** — all dynamic content uses DOM methods
+- **HTML escaping** — all LLM output is escaped before markdown rendering; links restricted to `http:`/`https:` protocols
 - **API keys stay in browser** — never sent to BundleLLM servers
 - **PKCE OAuth** — authorization codes protected by code verifier/challenge
 - **Auto-disconnect on auth errors** — expired/revoked keys trigger sign-out
@@ -133,7 +135,7 @@ Per the [Terms of Service](https://bundlellm.com/terms), custom UI integrations 
 npm install
 npm run build        # Build SDK → dist-sdk/sdk.js
 npm run compile      # TypeScript type check
-npm test             # 36 tests
+npm test             # 75 tests
 ```
 
 ### Test the SDK
