@@ -1,7 +1,7 @@
 {
   "name": "bundlellm",
   "description": "Add AI to any website. Users bring their own LLM.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "main": "dist-sdk/sdk.js",
   "browser": "dist-sdk/sdk.js",
