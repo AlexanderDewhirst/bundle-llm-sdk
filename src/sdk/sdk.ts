@@ -21,6 +21,129 @@ import type {
 const DEFAULT_API_URL = "https://api.bundlellm.com";
 const STORAGE_KEY = "bundlellm_connection";
 
+// ---- Lightweight Markdown ----
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function isSafeUrl(url: string): boolean {
+  // Decode HTML entities back for protocol check
+  const decoded = url.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  // Require absolute URLs to prevent relative-path phishing
+  if (!/^https?:\/\//i.test(decoded)) return false;
+  try {
+    const parsed = new URL(decoded);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function renderInline(text: string): string {
+  // Extract inline code spans first to protect their contents from formatting
+  const codeSpans: string[] = [];
+  const withPlaceholders = text.replace(/`([^`]+)`/g, (_match, code: string) => {
+    const idx = codeSpans.length;
+    codeSpans.push(`<code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:0.9em;">${code}</code>`);
+    return `\x00CODE${idx}\x00`;
+  });
+
+  // Apply formatting to text outside code spans
+  const formatted = withPlaceholders
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(?<!\w)\*(.+?)\*(?!\w)/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) =>
+      isSafeUrl(href)
+        ? `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${label}</a>`
+        : label,
+    );
+
+  // Restore code spans
+  return formatted.replace(/\x00CODE(\d+)\x00/g, (_match, idx: string) => codeSpans[parseInt(idx)]);
+}
+
+function renderMarkdown(raw: string): string {
+  const codeBlockStyle = "background:#0a0f1e;color:#d1d5db;padding:12px;border-radius:8px;overflow-x:auto;font-size:0.85em;line-height:1.5;white-space:pre;margin:4px 0;";
+  const codeLangStyle = "display:block;color:#6b7280;font-size:0.75em;margin-bottom:4px;";
+
+  // Split code blocks first to avoid processing their contents.
+  // Limitation: non-greedy match means triple backticks inside a fenced
+  // block (e.g., showing markdown syntax) will close the block early.
+  const parts = raw.split(/(```[\s\S]*?```)/g);
+  const rendered = parts.map((part) => {
+    if (part.startsWith("```")) {
+      const match = part.match(/^```(\w*)\n?([\s\S]*?)```$/);
+      if (match) {
+        const lang = match[1];
+        const code = escapeHtml(match[2].replace(/\n$/, ""));
+        const langLabel = lang ? `<span style="${codeLangStyle}">${escapeHtml(lang)}</span>` : "";
+        return `<pre style="${codeBlockStyle}">${langLabel}<code>${code}</code></pre>`;
+      }
+    }
+
+    // Process non-code-block text
+    const lines = part.split("\n");
+    const out: string[] = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // Headers
+      const hMatch = line.match(/^(#{1,3})\s+(.+)$/);
+      if (hMatch) {
+        const level = hMatch[1].length;
+        const sizes = ["1.2em", "1.1em", "1em"];
+        out.push(`<div style="font-weight:700;font-size:${sizes[level - 1]};margin:6px 0 2px;">${renderInline(escapeHtml(hMatch[2]))}</div>`);
+        i++;
+        continue;
+      }
+
+      // Unordered list items
+      if (/^[\-\*]\s+/.test(line)) {
+        const items: string[] = [];
+        while (i < lines.length && /^[\-\*]\s+/.test(lines[i])) {
+          items.push(`<li style="margin:2px 0;">${renderInline(escapeHtml(lines[i].replace(/^[\-\*]\s+/, "")))}</li>`);
+          i++;
+        }
+        out.push(`<ul style="margin:4px 0;padding-left:20px;">${items.join("")}</ul>`);
+        continue;
+      }
+
+      // Ordered list items
+      if (/^\d+\.\s+/.test(line)) {
+        const items: string[] = [];
+        while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+          items.push(`<li style="margin:2px 0;">${renderInline(escapeHtml(lines[i].replace(/^\d+\.\s+/, "")))}</li>`);
+          i++;
+        }
+        out.push(`<ol style="margin:4px 0;padding-left:20px;">${items.join("")}</ol>`);
+        continue;
+      }
+
+      // Empty line = paragraph break
+      if (line.trim() === "") {
+        out.push("<br>");
+        i++;
+        continue;
+      }
+
+      // Regular text
+      out.push(`<span>${renderInline(escapeHtml(line))}</span><br>`);
+      i++;
+    }
+    return out.join("");
+  });
+
+  // Collapse consecutive <br> tags to reduce whitespace between blocks
+  return rendered.join("").replace(/(<br>\s*){2,}/g, "<br>");
+}
+
 // ---- Analytics ----
 
 function djb2Hash(str: string): string {
@@ -476,6 +599,7 @@ class BundleLLMInstanceImpl {
       welcomeMessage: options?.welcomeMessage ?? "Connect your AI provider to start chatting.",
       theme: options?.theme ?? "light",
     };
+    const useMarkdown = options?.markdown !== false;
 
     const isDark = opts.theme === "dark";
     const bg = isDark ? "#1a202c" : "#fff";
@@ -587,9 +711,13 @@ class BundleLLMInstanceImpl {
       const bubble = document.createElement("div");
       bubble.style.cssText = role === "user"
         ? `background:${userBubble};color:#fff;padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;`
-        : `background:${assistantBubble};border:1px solid ${assistantBorder};padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;`;
+        : `background:${assistantBubble};border:1px solid ${assistantBorder};padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;word-break:break-word;${useMarkdown ? "" : "white-space:pre-wrap;"}`;
       const textEl = document.createElement("div");
-      textEl.textContent = content;
+      if (role === "assistant" && content && useMarkdown) {
+        textEl.innerHTML = renderMarkdown(content);
+      } else {
+        textEl.textContent = content;
+      }
       bubble.appendChild(textEl);
       row.appendChild(bubble);
       messagesEl.appendChild(row);
@@ -611,11 +739,19 @@ class BundleLLMInstanceImpl {
       addMessage("user", text);
       const { textEl, row } = addMessage("assistant", "");
       let fullText = "";
+      let renderPending = false;
+      const flushRender = () => {
+        renderPending = false;
+        if (useMarkdown) { textEl.innerHTML = renderMarkdown(fullText); } else { textEl.textContent = fullText; }
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      };
       const stream = this.chat({ messages: [...history], context: this.chatContext ?? opts.context, model: modelSwitcher.value || undefined });
       sendBtn.disabled = true; sendBtn.textContent = "...";
       stream
-        .on("delta", (delta: unknown) => { fullText += delta as string; textEl.textContent = fullText; messagesEl.scrollTop = messagesEl.scrollHeight; })
+        .on("delta", (delta: unknown) => { fullText += delta as string; if (!renderPending) { renderPending = true; requestAnimationFrame(flushRender); } })
         .on("done", (data: unknown) => {
+          // Final render to ensure complete content is displayed
+          flushRender();
           history.push({ role: "assistant", content: fullText });
           const usage = (data as { usage?: { inputTokens: number; outputTokens: number } }).usage;
           if (usage) {
@@ -1019,6 +1155,8 @@ const BundleLLM = {
   init(config?: BundleLLMConfig): BundleLLMInstance {
     return new BundleLLMInstanceImpl(config) as unknown as BundleLLMInstance;
   },
+  /** Convert markdown text to styled HTML. Useful for custom UI integrations. */
+  renderMarkdown,
 };
 
 export default BundleLLM;

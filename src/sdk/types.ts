@@ -16,6 +16,8 @@ export interface RenderChatOptions {
   context?: string;
   welcomeMessage?: string;
   theme?: "light" | "dark";
+  /** Render markdown in assistant responses (default: true). When false, responses display as plain text. */
+  markdown?: boolean;
 }
 
 export interface BundleLLMInstance {
