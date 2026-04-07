@@ -69,7 +69,7 @@ function renderInline(text: string): string {
 }
 
 function renderMarkdown(raw: string): string {
-  const codeBlockStyle = "background:#0a0f1e;color:#d1d5db;padding:12px;border-radius:8px;overflow-x:auto;font-size:0.85em;line-height:1.5;white-space:pre;margin:8px 0;";
+  const codeBlockStyle = "background:#0a0f1e;color:#d1d5db;padding:12px;border-radius:8px;overflow-x:auto;font-size:0.85em;line-height:1.5;white-space:pre;margin:4px 0;";
   const codeLangStyle = "display:block;color:#6b7280;font-size:0.75em;margin-bottom:4px;";
 
   // Split code blocks first to avoid processing their contents.
@@ -99,7 +99,7 @@ function renderMarkdown(raw: string): string {
       if (hMatch) {
         const level = hMatch[1].length;
         const sizes = ["1.2em", "1.1em", "1em"];
-        out.push(`<div style="font-weight:700;font-size:${sizes[level - 1]};margin:12px 0 4px;">${renderInline(escapeHtml(hMatch[2]))}</div>`);
+        out.push(`<div style="font-weight:700;font-size:${sizes[level - 1]};margin:6px 0 2px;">${renderInline(escapeHtml(hMatch[2]))}</div>`);
         i++;
         continue;
       }
@@ -140,7 +140,8 @@ function renderMarkdown(raw: string): string {
     return out.join("");
   });
 
-  return rendered.join("");
+  // Collapse consecutive <br> tags to reduce whitespace between blocks
+  return rendered.join("").replace(/(<br>\s*){2,}/g, "<br>");
 }
 
 // ---- Analytics ----
