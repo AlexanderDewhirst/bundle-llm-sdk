@@ -35,8 +35,10 @@ function escapeHtml(text: string): string {
 function isSafeUrl(url: string): boolean {
   // Decode HTML entities back for protocol check
   const decoded = url.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  // Require absolute URLs to prevent relative-path phishing
+  if (!/^https?:\/\//i.test(decoded)) return false;
   try {
-    const parsed = new URL(decoded, window.location.href);
+    const parsed = new URL(decoded);
     return parsed.protocol === "https:" || parsed.protocol === "http:";
   } catch {
     return false;
@@ -44,15 +46,26 @@ function isSafeUrl(url: string): boolean {
 }
 
 function renderInline(text: string): string {
-  return text
-    .replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:0.9em;">$1</code>')
+  // Extract inline code spans first to protect their contents from formatting
+  const codeSpans: string[] = [];
+  const withPlaceholders = text.replace(/`([^`]+)`/g, (_match, code: string) => {
+    const idx = codeSpans.length;
+    codeSpans.push(`<code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:0.9em;">${code}</code>`);
+    return `\x00CODE${idx}\x00`;
+  });
+
+  // Apply formatting to text outside code spans
+  const formatted = withPlaceholders
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/(?<!\w)\*(.+?)\*(?!\w)/g, "<em>$1</em>")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) =>
       isSafeUrl(href)
-        ? `<a href="${href}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;">${label}</a>`
+        ? `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${label}</a>`
         : label,
     );
+
+  // Restore code spans
+  return formatted.replace(/\x00CODE(\d+)\x00/g, (_match, idx: string) => codeSpans[parseInt(idx)]);
 }
 
 function renderMarkdown(raw: string): string {
@@ -695,7 +708,7 @@ class BundleLLMInstanceImpl {
       const bubble = document.createElement("div");
       bubble.style.cssText = role === "user"
         ? `background:${userBubble};color:#fff;padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;`
-        : `background:${assistantBubble};border:1px solid ${assistantBorder};padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;word-break:break-word;`;
+        : `background:${assistantBubble};border:1px solid ${assistantBorder};padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;word-break:break-word;${useMarkdown ? "" : "white-space:pre-wrap;"}`;
       const textEl = document.createElement("div");
       if (role === "assistant" && content && useMarkdown) {
         textEl.innerHTML = renderMarkdown(content);

@@ -65,10 +65,21 @@ describe("renderMarkdown", () => {
       expect(html).not.toContain("href");
     });
 
-    it("adds target=_blank and rel=noopener to links", () => {
+    it("strips relative URL links", () => {
+      const html = render("[Admin](/admin/delete-all)");
+      expect(html).not.toContain("href");
+      expect(html).toContain("Admin");
+    });
+
+    it("strips protocol-relative URLs", () => {
+      const html = render("[xss](//evil.com/payload)");
+      expect(html).not.toContain("href");
+    });
+
+    it("adds target=_blank and rel=noopener noreferrer to links", () => {
       const html = render("[safe](https://example.com)");
       expect(html).toContain('target="_blank"');
-      expect(html).toContain('rel="noopener"');
+      expect(html).toContain('rel="noopener noreferrer"');
     });
   });
 
@@ -96,6 +107,18 @@ describe("renderMarkdown", () => {
       const html = render("```\n**not bold** and *not italic*\n```");
       expect(html).not.toContain("<strong>");
       expect(html).not.toContain("<em>");
+    });
+
+    it("does not process markdown inside inline code", () => {
+      const html = render("Use `**kwargs` in Python");
+      expect(html).not.toContain("<strong>");
+      expect(html).toContain("**kwargs");
+    });
+
+    it("does not process links inside inline code", () => {
+      const html = render("Use `[text](url)` for links");
+      expect(html).not.toContain("<a ");
+      expect(html).toContain("[text](url)");
     });
   });
 
