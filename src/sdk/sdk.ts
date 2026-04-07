@@ -72,7 +72,9 @@ function renderMarkdown(raw: string): string {
   const codeBlockStyle = "background:#0a0f1e;color:#d1d5db;padding:12px;border-radius:8px;overflow-x:auto;font-size:0.85em;line-height:1.5;white-space:pre;margin:8px 0;";
   const codeLangStyle = "display:block;color:#6b7280;font-size:0.75em;margin-bottom:4px;";
 
-  // Split code blocks first to avoid processing their contents
+  // Split code blocks first to avoid processing their contents.
+  // Limitation: non-greedy match means triple backticks inside a fenced
+  // block (e.g., showing markdown syntax) will close the block early.
   const parts = raw.split(/(```[\s\S]*?```)/g);
   const rendered = parts.map((part) => {
     if (part.startsWith("```")) {
@@ -736,11 +738,19 @@ class BundleLLMInstanceImpl {
       addMessage("user", text);
       const { textEl, row } = addMessage("assistant", "");
       let fullText = "";
+      let renderPending = false;
+      const flushRender = () => {
+        renderPending = false;
+        if (useMarkdown) { textEl.innerHTML = renderMarkdown(fullText); } else { textEl.textContent = fullText; }
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      };
       const stream = this.chat({ messages: [...history], context: this.chatContext ?? opts.context, model: modelSwitcher.value || undefined });
       sendBtn.disabled = true; sendBtn.textContent = "...";
       stream
-        .on("delta", (delta: unknown) => { fullText += delta as string; if (useMarkdown) { textEl.innerHTML = renderMarkdown(fullText); } else { textEl.textContent = fullText; } messagesEl.scrollTop = messagesEl.scrollHeight; })
+        .on("delta", (delta: unknown) => { fullText += delta as string; if (!renderPending) { renderPending = true; requestAnimationFrame(flushRender); } })
         .on("done", (data: unknown) => {
+          // Final render to ensure complete content is displayed
+          flushRender();
           history.push({ role: "assistant", content: fullText });
           const usage = (data as { usage?: { inputTokens: number; outputTokens: number } }).usage;
           if (usage) {

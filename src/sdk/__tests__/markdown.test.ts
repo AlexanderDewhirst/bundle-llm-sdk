@@ -210,5 +210,25 @@ describe("renderMarkdown", () => {
       expect(html).toContain("BundleLLM.init()");
       expect(html).toContain("That&#39;s it!");
     });
+
+    it("renders bold inside a link label", () => {
+      const html = render("[**click**](https://example.com)");
+      expect(html).toContain("<strong>click</strong>");
+      expect(html).toContain("href=");
+    });
+
+    it("handles empty string input", () => {
+      const html = render("");
+      expect(html).toBeDefined();
+      expect(typeof html).toBe("string");
+    });
+
+    it("handles multiple code blocks in one message", () => {
+      const html = render("First:\n```js\nconst a = 1\n```\nSecond:\n```py\nx = 2\n```");
+      expect(html).toContain("const a = 1");
+      expect(html).toContain("x = 2");
+      expect(html).toContain("js</span>");
+      expect(html).toContain("py</span>");
+    });
   });
 });
