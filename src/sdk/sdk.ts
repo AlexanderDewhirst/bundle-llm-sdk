@@ -28,7 +28,19 @@ function escapeHtml(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function isSafeUrl(url: string): boolean {
+  // Decode HTML entities back for protocol check
+  const decoded = url.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  try {
+    const parsed = new URL(decoded, window.location.href);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function renderInline(text: string): string {
@@ -36,7 +48,11 @@ function renderInline(text: string): string {
     .replace(/`([^`]+)`/g, '<code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:0.9em;">$1</code>')
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/(?<!\w)\*(.+?)\*(?!\w)/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, href: string) =>
+      isSafeUrl(href)
+        ? `<a href="${href}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:underline;">${label}</a>`
+        : label,
+    );
 }
 
 function renderMarkdown(raw: string): string {
@@ -567,6 +583,7 @@ class BundleLLMInstanceImpl {
       welcomeMessage: options?.welcomeMessage ?? "Connect your AI provider to start chatting.",
       theme: options?.theme ?? "light",
     };
+    const useMarkdown = options?.markdown !== false;
 
     const isDark = opts.theme === "dark";
     const bg = isDark ? "#1a202c" : "#fff";
@@ -680,7 +697,7 @@ class BundleLLMInstanceImpl {
         ? `background:${userBubble};color:#fff;padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;`
         : `background:${assistantBubble};border:1px solid ${assistantBorder};padding:8px 12px;border-radius:12px;max-width:80%;font-size:14px;line-height:1.5;word-break:break-word;`;
       const textEl = document.createElement("div");
-      if (role === "assistant" && content) {
+      if (role === "assistant" && content && useMarkdown) {
         textEl.innerHTML = renderMarkdown(content);
       } else {
         textEl.textContent = content;
@@ -709,7 +726,7 @@ class BundleLLMInstanceImpl {
       const stream = this.chat({ messages: [...history], context: this.chatContext ?? opts.context, model: modelSwitcher.value || undefined });
       sendBtn.disabled = true; sendBtn.textContent = "...";
       stream
-        .on("delta", (delta: unknown) => { fullText += delta as string; textEl.innerHTML = renderMarkdown(fullText); messagesEl.scrollTop = messagesEl.scrollHeight; })
+        .on("delta", (delta: unknown) => { fullText += delta as string; if (useMarkdown) { textEl.innerHTML = renderMarkdown(fullText); } else { textEl.textContent = fullText; } messagesEl.scrollTop = messagesEl.scrollHeight; })
         .on("done", (data: unknown) => {
           history.push({ role: "assistant", content: fullText });
           const usage = (data as { usage?: { inputTokens: number; outputTokens: number } }).usage;
@@ -1114,6 +1131,8 @@ const BundleLLM = {
   init(config?: BundleLLMConfig): BundleLLMInstance {
     return new BundleLLMInstanceImpl(config) as unknown as BundleLLMInstance;
   },
+  /** Convert markdown text to styled HTML. Useful for custom UI integrations. */
+  renderMarkdown,
 };
 
 export default BundleLLM;
